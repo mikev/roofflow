@@ -131,14 +131,14 @@ namespace Roofflow
                 },
                 'TaskList': {
                     'a1': { 'Id':'a1', 'Src': 'A', 'Dst':'B', 'TaskType':'Assign', 'Est':24 },
-                    'b1': { 'Id':'b1', 'Src': 'B', 'Dst':'C', 'TaskType':'Choose', 'Est':4 },
-                    'b2': { 'Id':'b2', 'Src': 'B', 'Dst':'C', 'TaskType':'Accept', 'Est':24 },
-                    'c1': { 'Id':'c1', 'Src': 'C', 'Dst':'D', 'TaskType':'Approve', 'Est':24 },
-                    'c2': { 'Id':'c2', 'Src': 'C', 'Dst':'D', 'TaskType':'Wire', 'Est':48 },
+                    'b1': { 'Id':'b1', 'Src': 'B', 'Dst':'C', 'TaskType':'Choose', 'Est':24 },
+                    'b2': { 'Id':'b2', 'Src': 'B', 'Dst':'C', 'TaskType':'Accept', 'Est':4 },
+                    'c1': { 'Id':'c1', 'Src': 'C', 'Dst':'D', 'TaskType':'Approve', 'Est':48 },
+                    'c2': { 'Id':'c2', 'Src': 'C', 'Dst':'D', 'TaskType':'Wire', 'Est':24 },
                     'c3': { 'Id':'c3', 'Src': 'C', 'Dst':'D', 'TaskType':'Sign', 'Est':1 },
                     'd1': { 'Id':'d1', 'Src': 'D', 'Dst':'E', 'TaskType':'CloseOut', 'Est':24 },
-                    'd2': { 'Id':'d2', 'Src': 'D', 'Dst':'E', 'TaskType':'Sign', 'Est':24 },
-                    'd3': { 'Id':'d3', 'Src': 'D', 'Dst':'Z', 'TaskType':'Sign', 'Est':24 },
+                    'd2': { 'Id':'d2', 'Src': 'D', 'Dst':'E', 'TaskType':'Sign', 'Est':12 },
+                    'd3': { 'Id':'d3', 'Src': 'D', 'Dst':'Z', 'TaskType':'Sign', 'Est':6 },
                     'e1': { 'Id':'e1', 'Src': 'E', 'Dst':'Z', 'TaskType':'Sign', 'Est':24 }
                 }
             }";
@@ -256,6 +256,8 @@ namespace Roofflow
         public void MarkCompleted(string taskName)
         {
             edgeState[taskName] = true;
+            var v = edgeMap[taskName];
+            edgeCostList[v] = 0;
         }
 
         public void UpdateEdge(Edge<Vertex> e)
@@ -636,8 +638,7 @@ namespace Roofflow
                 line = Console.ReadLine();
                 if (line != null)
                     Console.WriteLine("task: " + line);
-                var taskState = wf.edgeState;
-                taskState[line] = true;
+                wf.MarkCompleted(line);
             } while (line != null);
         }
     }
