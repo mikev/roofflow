@@ -1,31 +1,24 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using System.Windows.Forms;
-using QuickGraph;
-using QuickGraph.Algorithms;
+﻿using QuickGraph;
 using QuickGraph.Algorithms.ShortestPath;
-using QuickGraph.Algorithms.MaximumFlow;
 using QuickGraph.Algorithms.Observers;
+using QuickGraph.Algorithms.TopologicalSort;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Diagnostics.Contracts;
+using Newtonsoft.Json;
 
-namespace RoofFlow
+namespace Roofflow
 {
-    public enum TaskState
+    public enum TaskType
     {
-        NotComplete,
-        Complete
-    }
-
-    public class Task
-    {
-        // private TaskState state;
-
-        public Task()
-        {
-            // state = TaskState.NotComplete;
-        }
-
+        Assign,
+        Accept,
+        Choose,
+        Sign,
+        Wire,
+        Fund,
+        CloseOut
     }
 
     public enum NodeType
@@ -65,79 +58,127 @@ namespace RoofFlow
 
     public class Vertex
     {
-        private string name;
-        private NodeType type;
-        private NodeState state = NodeState.Init;
-
-        public NodeState State
-        {
-            get { return state; }
-
-            set { state = value; }
-        }
-
-        public string Name
-        {
-            get { return name; }
-        }
+        public string Name { get; set; }
+        public NodeType Type { get; set; }
+        public NodeState State { get; set; }
 
         public Vertex(string name, NodeType type)
         {
-            this.name = name;
-            this.type = type;
+            this.Name = name;
+            this.Type = type;
             this.State = NodeState.Init;
         }
 
         public override string ToString()
         {
             // return this.name + "->" + this.type;
-            return this.name;
+            return this.Name;
         }
 
     }
 
+    // 'a1': { 'Id':'a1', 'Src': 'A', 'Dst':'B', 'TaskType':'Assign' },
+    public class Task
+    {
+        public string Id { get; set; }
+        public string Src { get; set; }
+        public string Dst { get; set; }
+        public int Est { get; set; }
+        public TaskType Type { get; set; }
+    }
+
     public class Workflow
     {
+        public class WorkflowJson
+        {
+            public IDictionary<string, Vertex> NodeList { get; set; }
+            public IDictionary<string, Task> TaskList { get; set; }
+        }
 
         private BidirectionalGraph<Vertex, Edge<Vertex>> graph;
         public Dictionary<Edge<Vertex>, string> edgeList;
         public Dictionary<string, Edge<Vertex>> edgeMap;
+        public Dictionary<string, Vertex> nodeMap;
+
+        public Dictionary<Edge<Vertex>, double> edgeCostList;
+
         public Dictionary<string, bool> edgeState;
         public Dictionary<string, bool> nodeState;
 
         private IList<Vertex> sortedVertexList;
 
-        // public Workflow(AdjacencyGraph<Vertex, IEdge<Vertex>> graphX)
         public Workflow()
         {
-            BidirectionalGraph<Vertex, Edge<Vertex>> graph = new BidirectionalGraph<Vertex, Edge<Vertex>>(true);
+            this.graph = new BidirectionalGraph<Vertex, Edge<Vertex>>(true);
             this.edgeList = new Dictionary<Edge<Vertex>, string>();
             this.edgeMap = new Dictionary<string, Edge<Vertex>>();
-            this.graph = graph;
+            this.nodeMap = new Dictionary<string, Vertex>();
+
+            // Define some weights to the edges
+            this.edgeCostList = new Dictionary<Edge<Vertex>, double>();
 
             this.edgeState = new Dictionary<string, bool>();
             this.nodeState = new Dictionary<string, bool>();
 
+            string json = @"{
+                'NodeList': {
+                    'A': { 'Name':'A', 'NodeType':'Pass' },
+                    'B': { 'Name':'B', 'NodeType':'Pass' },
+                    'C': { 'Name':'C', 'NodeType':'Pass' },
+                    'D': { 'Name':'D', 'NodeType':'Pass' },
+                    'E': { 'Name':'E', 'NodeType':'Pass' },
+                    'Z': { 'Name':'Z', 'NodeType':'Pass' }
+                },
+                'TaskList': {
+                    'a1': { 'Id':'a1', 'Src': 'A', 'Dst':'B', 'TaskType':'Assign', 'Est':24 },
+                    'b1': { 'Id':'b1', 'Src': 'B', 'Dst':'C', 'TaskType':'Choose', 'Est':4 },
+                    'b2': { 'Id':'b2', 'Src': 'B', 'Dst':'C', 'TaskType':'Accept', 'Est':24 },
+                    'c1': { 'Id':'c1', 'Src': 'C', 'Dst':'D', 'TaskType':'Approve', 'Est':24 },
+                    'c2': { 'Id':'c2', 'Src': 'C', 'Dst':'D', 'TaskType':'Wire', 'Est':48 },
+                    'c3': { 'Id':'c3', 'Src': 'C', 'Dst':'D', 'TaskType':'Sign', 'Est':1 },
+                    'd1': { 'Id':'d1', 'Src': 'D', 'Dst':'E', 'TaskType':'CloseOut', 'Est':24 },
+                    'd2': { 'Id':'d2', 'Src': 'D', 'Dst':'E', 'TaskType':'Sign', 'Est':24 },
+                    'd3': { 'Id':'d3', 'Src': 'D', 'Dst':'Z', 'TaskType':'Sign', 'Est':24 },
+                    'e1': { 'Id':'e1', 'Src': 'E', 'Dst':'Z', 'TaskType':'Sign', 'Est':24 }
+                }
+            }";
+
+            WorkflowJson wf = JsonConvert.DeserializeObject<WorkflowJson>(json);
+
+            foreach (KeyValuePair<string, Vertex> kvp in wf.NodeList)
+            {
+                Vertex v = kvp.Value;
+                AddVertex(v);
+            }
+
+            foreach (KeyValuePair<string, Task> kvp in wf.TaskList)
+            {
+                Task t = kvp.Value;
+                AddTask(t);
+            }
+
             // Add some vertices to the graph
-            var a = AddVertex("A", NodeType.Start);
-            var b = AddVertex("B", NodeType.Link);
-            var c = AddVertex("C", NodeType.Link);
-            var d = AddVertex("D", NodeType.Link);
-            var e = AddVertex("E", NodeType.Link);
-            var z = AddVertex("Z", NodeType.End);
+            //var a = AddVertex("A", NodeType.Start);
+            //var b = AddVertex("B", NodeType.Link);
+            //var c = AddVertex("C", NodeType.Link);
+            //var d = AddVertex("D", NodeType.Link);
+            //var e = AddVertex("E", NodeType.Link);
+            //var z = AddVertex("Z", NodeType.End);
 
             // Add the edges
-            AddEdge("a1", a, b);
-            AddEdge("b1", b, c);
-            AddEdge("b2", b, c);
-            AddEdge("c1", c, d);
-            AddEdge("c2", c, d);
-            AddEdge("c3", c, d);
-            AddEdge("d1", d, e);
-            AddEdge("d2", d, e);
-            AddEdge("d3", d, z);
-            AddEdge("e1", e, z);
+            //AddEdge("a1", a, b);
+            //AddEdge("b1", b, c);
+            //AddEdge("b2", b, c);
+            //AddEdge("c1", c, d);
+            //AddEdge("c2", c, d);
+            //AddEdge("c3", c, d);
+            //AddEdge("d1", d, e);
+            //AddEdge("d2", d, e);
+            //AddEdge("d3", d, z);
+            //AddEdge("e1", e, z);
 
+            // Perform a topological sort of the directed acycle graph
+            // This gives us the tasks and nodes in a time and dependent order.
             var sort = new QuickGraph.Algorithms.TopologicalSort.TopologicalSortAlgorithm<Vertex, Edge<Vertex>>(this.graph);
             sort.Compute();
             this.sortedVertexList = sort.SortedVertices;
@@ -150,17 +191,37 @@ namespace RoofFlow
         {
             var v = new Vertex(name, type);
             nodeState.Add(name, false);
+            nodeMap.Add(name, v);
             graph.AddVertex(v);
             return v;
         }
 
-        public void AddEdge(string name, Vertex source, Vertex target)
+        public Vertex AddVertex(Vertex v)
+        {
+            nodeState.Add(v.Name, false);
+            nodeMap.Add(v.Name, v);
+            graph.AddVertex(v);
+            return v;
+        }
+
+        public Edge<Vertex> AddEdge(string name, Vertex source, Vertex target)
         {
             var edge = new Edge<Vertex>(source, target);
             graph.AddEdge(edge);
             edgeList.Add(edge, name);
             edgeMap.Add(name, edge);
             edgeState.Add(name, false);
+            return edge;
+        }
+
+        public void AddTask(Task task)
+        {
+            var source = nodeMap[task.Src];
+            var target = nodeMap[task.Dst];
+            var name = task.Id;
+            var edge = AddEdge(name, source, target);
+            // include the time duration cost in hours.  It is a negative number!
+            edgeCostList.Add(edge, 0 - task.Est);
         }
 
         public BidirectionalGraph<Vertex, Edge<Vertex>> Graph
@@ -245,13 +306,38 @@ namespace RoofFlow
             }
         }
 
-        public void PrintAllNodes()
+        //public void FindPath(string @from = "START", string @to = "END")
+        //{
+        //    Func<Edge<string>, double> edgeCost = AlgorithmExtensions.GetIndexer(EdgeCost);
+        //    // Positive or negative weights
+        //    TryFunc<string, System.Collections.Generic.IEnumerable<Edge<string>>> tryGetPath = Graph.ShortestPathsBellmanFord(edgeCost, @from);
+
+        //    IEnumerable<Edge<string>> path;
+        //    if (tryGetPath(@to, out path))
+        //    {
+        //        Console.Write("Path found from {0} to {1}: {0}", @from, @to);
+        //        foreach (var e in path) { Console.Write(" > {0}", e.Target); }
+        //        Console.WriteLine();
+        //    }
+        //    else { Console.WriteLine("No path found from {0} to {1}."); }
+        //}
+
+        public double GetETA(string start = "A")
         {
-            Console.WriteLine("All Vertices");
-            foreach (var node in this.graph.Vertices)
-            {
-                Console.WriteLine(node);
-            }
+            Func<Edge<Vertex>, double> edgeCost = e => this.edgeCostList[e];
+
+            // Bellman algorithm works with either positive or negative weights
+            BellmanFordShortestPathAlgorithm<Vertex, Edge<Vertex>> pathCalc = new BellmanFordShortestPathAlgorithm<Vertex, Edge<Vertex>>(this.graph, edgeCost);
+
+            Vertex source = nodeMap[start];
+            Vertex target = nodeMap["Z"];
+            pathCalc.Compute(source);
+
+            var distances = pathCalc.Distances;
+
+            var distanceToTarget = 0 - distances[target];
+
+            return distanceToTarget;
         }
 
         public IEnumerable<string> GetSortedEdges()
@@ -276,6 +362,40 @@ namespace RoofFlow
             }
         }
 
+        public string GetDynamicStartNode()
+        {
+            Vertex start = null;
+            foreach (var foo in GetSortedNodes())
+            {
+                var visited = nodeState[foo.Name];
+                if (!visited)
+                    break;
+                start = foo;
+            }
+            return start.Name;
+        }
+        public void PrintAllNodes()
+        {
+            Console.WriteLine("All Vertices");
+            foreach (var node in this.graph.Vertices)
+            {
+                Console.WriteLine(node);
+            }
+        }
+        public void PrintETA()
+        {
+            string startName = GetDynamicStartNode();
+            double eta = GetETA(startName);
+            Console.WriteLine("ETA to Z: {0}", eta);
+        }
+
+        public void PrintStartNode()
+        {
+            Console.Write("Starting Node: ");
+            string startName = GetDynamicStartNode();
+            Console.WriteLine(startName);
+        }
+
         public void PrintSortedNodes()
         {
             Console.WriteLine("Sorted Nodes");
@@ -292,6 +412,8 @@ namespace RoofFlow
             {
                 Console.WriteLine(foo);
             }
+            PrintStartNode();
+            PrintETA();
         }
 
         public void PrintEdgeStates()
@@ -344,7 +466,7 @@ namespace RoofFlow
         }
     }
 
-    static class Program
+    public static class Program
     {
         static int[] getActive()
         {
@@ -370,7 +492,7 @@ namespace RoofFlow
             return list;
         }
 
-        static void foo()
+        public static void foo()
         {
             AdjacencyGraph<string, Edge<string>> graph = new AdjacencyGraph<string, Edge<string>>(true);
 
@@ -508,7 +630,9 @@ namespace RoofFlow
             {
                 wf.PrintEdgeStates();
                 wf.UpdateAllNodes();
+                wf.PrintStartNode();
                 wf.PrintToDoList();
+                wf.PrintETA();
                 line = Console.ReadLine();
                 if (line != null)
                     Console.WriteLine("task: " + line);
