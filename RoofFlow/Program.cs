@@ -8,6 +8,9 @@ using System.Diagnostics;
 using System.Diagnostics.Contracts;
 using Newtonsoft.Json;
 
+using System.Activities;
+using System.Activities.Statements;
+
 namespace Roofflow
 {
     public enum TaskType
@@ -615,6 +618,131 @@ namespace Roofflow
             // predecessorObserver.Detach(dijkstra);
         }
 
+        public sealed class ReadInt : NativeActivity<int>
+        {
+            [RequiredArgument]
+            public InArgument<string> BookmarkName { get; set; }
+
+            protected override void Execute(NativeActivityContext context)
+            {
+                string name = BookmarkName.Get(context);
+
+                if (name == string.Empty)
+                { throw new ArgumentException("BookmarkName cannot be an Empty string.", "BookmarkName"); }
+
+                context.CreateBookmark(name, new BookmarkCallback(OnReadComplete));
+            }
+
+            // NativeActivity derived activities that do asynchronous operations by calling 
+            // one of the CreateBookmark overloads defined on System.Activities.NativeActivityContext 
+            // must override the CanInduceIdle property and return true.
+            protected override bool CanInduceIdle { get { return true; } }
+
+            void OnReadComplete(NativeActivityContext context, Bookmark bookmark, object state)
+            {
+                this.Result.Set(context, Convert.ToInt32(state));
+            }
+        }
+
+        public class RSCustomActivity : CodeActivity
+        {
+            Variable<string> aName = new Variable<string> { Default = "myName" };
+
+            public RSCustomActivity(string name)
+            {
+                DisplayName = name;
+                
+                this.aName = new Variable<string> { Default = name }; ;
+            }
+            protected override void Execute(CodeActivityContext context)
+            {
+                // var theDate = Date;
+                DateTime theDate2 = new DateTime();
+                Console.WriteLine("RSCustomActivity {0} at Date: {1}", DisplayName, theDate2);
+            }
+
+            // [Input("DateTime input")]
+            // [Default("2004-07-09T02:54:00Z")]
+            // public InArgument<DateTime> Date { get; set; }
+        }
+
+        static void WorkflowSample()
+        {
+            // Declaring a set of tokens that can be used to refer to a particular unit of compensable work
+            Variable < CompensationToken > tokenA = new Variable<CompensationToken>
+            {
+                Name = "Token A",
+            };
+            Variable<CompensationToken> tokenB = new Variable<CompensationToken>
+            {
+                Name = "Token B",
+            };
+            Variable<CompensationToken> tokenC = new Variable<CompensationToken>
+            {
+                Name = "Token C",
+            };
+
+            Activity task_a1 = new RSCustomActivity("a1");
+            Activity task_b1 = new RSCustomActivity("b1");
+            Activity task_b2 = new RSCustomActivity("b2");
+            Activity task_c1 = new RSCustomActivity("c1");
+            Activity task_c2 = new RSCustomActivity("c2");
+            Activity task_c3 = new RSCustomActivity("c3");
+            Activity task_d1 = new RSCustomActivity("d1");
+            Activity task_d2 = new RSCustomActivity("d2");
+            Activity task_d3 = new RSCustomActivity("d3");
+            Activity task_e1 = new RSCustomActivity("e1");
+            Activity taskX = new ReadInt();
+
+            // System.Activities.Statements.Assign.Equals()
+
+            Activity A = new Parallel
+            {
+                DisplayName = "Task A",
+                CompletionCondition = true,
+                Branches = { task_a1 }
+            };
+
+            Activity B = new Parallel
+            {
+                DisplayName = "Task B",
+                CompletionCondition = true,
+                Branches = { task_b1, task_b2 }
+            };
+
+
+            Activity C = new Parallel
+            {
+                DisplayName = "Task C",
+                CompletionCondition = true,
+                Branches = { task_c1, task_c2, task_c3 }
+            };
+
+            Activity D = new Parallel
+            {
+                DisplayName = "Task D",
+                CompletionCondition = true,
+                Branches = { task_d1, task_d2, task_d3 }
+            };
+
+            Activity E = new Parallel
+            {
+                DisplayName = "Task E",
+                CompletionCondition = true,
+                Branches = { task_e1 }
+            };
+
+            Activity Root = new Parallel
+            {
+                DisplayName = "Task Root",
+                CompletionCondition = true,
+                Branches = { B, A, B, C, D, E }
+            };
+
+            WorkflowInvoker.Invoke(Root);
+            WorkflowInvoker.Invoke(Root);
+        }
+
         /// <summary>
         /// The main entry point for the application.
         /// </summary>
@@ -622,6 +750,8 @@ namespace Roofflow
         static void Main()
         {
             if (!Console.IsOutputRedirected) Console.Clear();
+
+            WorkflowSample();
 
             var wf = new Workflow();
 
